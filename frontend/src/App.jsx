@@ -1,400 +1,315 @@
 import React, { useState, useEffect } from 'react';
-import { BrowserRouter as Router, Routes, Route, useNavigate, useParams, Navigate, useLocation } from 'react-router-dom';
 import axios from 'axios';
+import { 
+  LayoutDashboard, UserCog, Stethoscope, ClipboardList, 
+  Clock, AlertTriangle, LogOut, RefreshCw, UserPlus, ShieldCheck, UserRoundPlus
+} from 'lucide-react';
 
-// --- CONFIGURATION ---
-const API_BASE = import.meta.env.VITE_API_BASE;
-const api = axios.create({ baseURL: API_BASE });
+const API_BASE = 'http://localhost:5000/api';
 
-// --- REUSABLE UI COMPONENTS ---
-// 1. Unified Input Field
-const InputField = ({ label, ...props }) => (
-  <div className="space-y-2">
-    {label && <label className="text-[10px] font-black text-[#10b981] uppercase tracking-[0.2em] ml-1">{label}</label>}
-    <input 
-      className="w-full p-4 bg-[#0f172a] border border-[#334155] rounded-2xl text-white placeholder:text-slate-600 focus:border-[#10b981] focus:ring-1 focus:ring-[#10b981] outline-none transition-all"
-      {...props}
-    />
-  </div>
-);
+export default function App() {
+  // Auth State
+  const [token, setToken] = useState(localStorage.getItem('token'));
+  const [role, setRole] = useState(localStorage.getItem('role')); 
+  const [isRegistering, setIsRegistering] = useState(false);
+  
+  // Data State
+  const [simResults, setSimResults] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [mgmtTab, setMgmtTab] = useState('stats'); // 'stats' or 'doctors'
 
-// 2. Unified Action Button
-const ActionButton = ({ children, onClick, variant = 'primary', className = '' }) => {
-  const baseStyle = "w-full py-4 rounded-2xl font-black uppercase tracking-widest transition-all hover:scale-[1.02] active:scale-95";
-  const variants = {
-    primary: "bg-[#10b981] text-[#0f172a] hover:bg-[#34d399] shadow-[0_0_20px_rgba(16,185,129,0.3)]",
-    outline: "bg-transparent border border-[#334155] text-slate-400 hover:border-[#10b981] hover:text-white"
-  };
-  return (
-    <button onClick={onClick} className={`${baseStyle} ${variants[variant]} ${className}`}>
-      {children}
-    </button>
-  );
-};
+  // Form States
+  const [loginForm, setLoginForm] = useState({ name: '', password: '', role: 'management', drId: '' });
+  const [registerForm, setRegisterForm] = useState({ name: '', managementPassword: '', receptionPassword: '' });
+  const [docForm, setDocForm] = useState({ drId: '', password: '', serviceTime: 15 });
+  const [mgmtForm, setMgmtForm] = useState({ totalBeds: 0, doctorCount: 0, globalServiceTime: 0 });
+  const [rcptForm, setRcptForm] = useState({ arrivalRate: 0, emergencyPatients: 0, normalPatients: 0 });
 
-// 3. Unified Card
-const Card = ({ children, className = '' }) => (
-  <div className={`bg-[#1e293b] border border-[#334155] p-8 rounded-[30px] shadow-2xl ${className}`}>
-    {children}
-  </div>
-);
-
-// --- NAVBAR ---
-const Navbar = () => {
-  const navigate = useNavigate();
-  const location = useLocation();
-  const [userRole, setUserRole] = useState(null);
-
+  // Fetch simulation results
   useEffect(() => {
-    setUserRole(localStorage.getItem('user_role'));
-  }, [location]);
+    if (token && role) fetchData();
+  }, [token, role]);
 
-  const handleLogout = () => {
-    localStorage.clear();
-    setUserRole(null);
-    navigate('/');
+  const fetchData = async () => {
+    if (!token) return;
+    try {
+      setLoading(true);
+      const config = { headers: { Authorization: `Bearer ${token}` } };
+      const res = await axios.get(`${API_BASE}/simulation/results`, config);
+      setSimResults(res.data);
+    } catch (err) {
+      if (err.response?.status === 401 || err.response?.status === 403) handleLogout();
+    } finally {
+      setLoading(false);
+    }
   };
 
-  return (
-    <nav className="sticky top-0 z-50 bg-[#0f172a]/90 backdrop-blur-md border-b border-[#334155] px-6 py-4">
-      <div className="max-w-7xl mx-auto flex justify-between items-center">
-        <div className="flex items-center gap-3 cursor-pointer group" onClick={() => navigate('/')}>
-          <div className="relative">
-             <div className="w-10 h-10 bg-[#10b981] rounded-xl flex items-center justify-center font-black text-[#0f172a] transition-all group-hover:shadow-[0_0_20px_rgba(16,185,129,0.5)]">H</div>
-             {userRole && <div className="absolute -top-1 -right-1 w-3 h-3 bg-red-500 rounded-full border-2 border-[#0f172a] animate-pulse" />}
-          </div>
-          <h1 className="hidden sm:block font-bold text-xl tracking-tight text-white uppercase italic">
-            Hospital<span className="text-[#10b981] not-italic font-black">Sync</span>
-          </h1>
-        </div>
-
-        <div className="flex items-center gap-6">
-          {userRole ? (
-            <>
-              <div className="hidden sm:flex items-center gap-2 px-3 py-1 bg-[#10b981]/10 border border-[#10b981]/20 rounded-full">
-                <div className="w-1.5 h-1.5 bg-[#10b981] rounded-full animate-ping" />
-                <span className="text-[10px] font-black text-[#10b981] uppercase tracking-widest">{userRole} Active</span>
-              </div>
-              <button onClick={handleLogout} className="text-slate-400 hover:text-white text-xs font-bold uppercase tracking-widest">Sign Out</button>
-            </>
-          ) : (
-            <button onClick={() => navigate('/register')} className="bg-[#10b981] text-[#0f172a] px-6 py-2 rounded-xl text-xs font-black uppercase tracking-widest hover:scale-105 transition-all shadow-lg shadow-[#10b981]/20">
-              Join Network
-            </button>
-          )}
-        </div>
-      </div>
-    </nav>
-  );
-};
-
-// --- PAGES ---
-
-// 1. LANDING
-const Landing = () => {
-  const navigate = useNavigate();
-  const roles = [
-    { id: 'management', icon: '🏢', label: 'Admin Ops' },
-    { id: 'reception', icon: '⚡', label: 'Front Desk' },
-    { id: 'doctor', icon: '🩺', label: 'Medical Staff' }
-  ];
-
-  return (
-    <div className="min-h-[calc(100vh-80px)] flex flex-col items-center justify-center p-6">
-      <div className="text-center mb-12 space-y-4">
-        <h2 className="text-4xl md:text-6xl font-black text-white tracking-tight">System <span className="text-[#10b981]">Entry</span></h2>
-        <p className="text-slate-400 font-medium uppercase tracking-widest text-xs">Select your authorization level</p>
-      </div>
-      
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 w-full max-w-5xl">
-        {roles.map((r) => (
-          <div key={r.id} onClick={() => navigate(`/login/${r.id}`)} 
-            className="bg-[#1e293b] border border-[#334155] p-10 rounded-3xl hover:border-[#10b981] hover:shadow-[0_0_40px_rgba(16,185,129,0.1)] hover:-translate-y-2 transition-all cursor-pointer group flex flex-col items-center gap-6">
-            <div className="w-20 h-20 bg-[#0f172a] rounded-2xl flex items-center justify-center text-3xl group-hover:text-[#10b981] transition-colors border border-[#334155]">
-              {r.icon}
-            </div>
-            <h3 className="uppercase font-black text-slate-300 text-xl tracking-widest group-hover:text-white">{r.label}</h3>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-};
-
-// 2. REGISTER
-const Register = () => {
-  const [form, setForm] = useState({ email: '', password: '', hospital_name: '', reception_password: '', total_beds: 50 });
-  const navigate = useNavigate();
-
-  const handleSubmit = async (e) => {
+  const handleRegister = async (e) => {
     e.preventDefault();
     try {
-      await api.post('/auth/register-hospital', form);
-      navigate('/login/management');
-    } catch (err) { alert("Registration failed"); }
+      setLoading(true);
+      await axios.post(`${API_BASE}/hospital/register`, registerForm);
+      alert("Hospital Registered Successfully! You can now log in.");
+      setIsRegistering(false);
+      setRegisterForm({ name: '', managementPassword: '', receptionPassword: '' });
+    } catch (err) {
+      alert("Registration failed. Name might already be taken.");
+    } finally {
+      setLoading(false);
+    }
   };
-
-  return (
-    <div className="min-h-[calc(100vh-80px)] flex items-center justify-center p-6">
-      <Card className="w-full max-w-lg">
-        <div className="mb-8 text-center">
-          <h2 className="text-3xl font-black text-white uppercase tracking-tighter">Initialize Node</h2>
-          <p className="text-slate-400 text-sm mt-2">Create new hospital cluster</p>
-        </div>
-        <form onSubmit={handleSubmit} className="space-y-5">
-          <InputField placeholder="Hospital Name" onChange={e => setForm({...form, hospital_name: e.target.value})} required />
-          <InputField type="email" placeholder="Admin Email" onChange={e => setForm({...form, email: e.target.value})} required />
-          <div className="grid grid-cols-2 gap-4">
-             <InputField type="password" placeholder="Admin Pass" onChange={e => setForm({...form, password: e.target.value})} required />
-             <InputField type="password" placeholder="Shared Pass" onChange={e => setForm({...form, reception_password: e.target.value})} required />
-          </div>
-          <InputField type="number" placeholder="Total Capacity" onChange={e => setForm({...form, total_beds: e.target.value})} required />
-          <ActionButton className="mt-4">Deploy Network</ActionButton>
-        </form>
-      </Card>
-    </div>
-  );
-};
-
-// 3. LOGIN
-const Login = () => {
-  const { role } = useParams();
-  const navigate = useNavigate();
-  const [identifier, setIdentifier] = useState('');
-  const [password, setPassword] = useState('');
 
   const handleLogin = async (e) => {
     e.preventDefault();
     try {
-      const endpoint = `/auth/${role}`;
-      const payload = role === 'management' ? { email: identifier, password } 
-                    : role === 'doctor' ? { dr_id: identifier, password } 
-                    : { hospital_name: identifier, password };
-      const res = await api.post(endpoint, payload);
-      
-      localStorage.setItem('user_role', role);
-      localStorage.setItem('hospital_id', res.data.hospitalId || res.data.user?.id);
-      if(role === 'doctor') localStorage.setItem('doctor_uuid', res.data.doctorId);
-      navigate(`/${role}-dash`);
-    } catch (err) { alert("Auth Failed"); }
+      const res = await axios.post(`${API_BASE}/login`, loginForm);
+      const receivedToken = res.data.token;
+      const receivedRole = res.data.role;
+      setToken(receivedToken);
+      setRole(receivedRole);
+      localStorage.setItem('token', receivedToken);
+      localStorage.setItem('role', receivedRole);
+    } catch (err) {
+      alert("Login Failed: Check credentials");
+    }
   };
 
-  return (
-    <div className="min-h-[calc(100vh-80px)] flex items-center justify-center p-6">
-      <Card className="w-full max-w-md">
-        <div className="mb-8">
-          <h3 className="text-3xl font-black text-white capitalize mb-2">{role} Access</h3>
-          <p className="text-slate-400 font-medium">Verify credentials to enter portal.</p>
-        </div>
-        <form onSubmit={handleLogin} className="space-y-6">
-          <InputField 
-            label="Identity Key"
-            placeholder={role === 'doctor' ? 'Enter DR-ID' : 'Enter Username'}
-            onChange={e => setIdentifier(e.target.value)}
-          />
-          <InputField 
-            label="Access Token"
-            type="password"
-            placeholder="••••••••"
-            onChange={e => setPassword(e.target.value)}
-          />
-          <ActionButton className="mt-4">Authorize Session</ActionButton>
-        </form>
-      </Card>
-    </div>
-  );
-};
-
-// 4. MANAGEMENT DASHBOARD
-const ManagementDash = () => {
-  const [newDr, setNewDr] = useState(null);
-  const [serviceTime, setServiceTime] = useState(15);
-  const hId = localStorage.getItem('hospital_id');
-
-  const createDoctor = async () => {
-    const res = await api.post('/hospital/create-doctor', { hospital_id: hId, service_time: serviceTime });
-    setNewDr(res.data);
-  };
-
-  return (
-    <div className="max-w-4xl mx-auto p-6 md:p-12 space-y-8">
-      <header>
-        <h2 className="text-4xl font-black text-white uppercase tracking-tight">Command Center</h2>
-        <p className="text-slate-400">Hospital Administration & Staffing</p>
-      </header>
-
-      <Card>
-        <div className="flex flex-col md:flex-row gap-6 items-end">
-          <div className="flex-1 w-full">
-            <InputField 
-              label="Staff Processing Rate (Mins)"
-              type="number" 
-              value={serviceTime}
-              onChange={e => setServiceTime(e.target.value)} 
-            />
-          </div>
-          <ActionButton onClick={createDoctor} className="md:w-auto px-8">Generate Doctor ID</ActionButton>
-        </div>
-
-        {newDr && (
-          <div className="mt-8 p-6 bg-[#0f172a] rounded-2xl border border-[#10b981] relative overflow-hidden">
-             <div className="absolute top-0 left-0 w-1 h-full bg-[#10b981]" />
-             <h4 className="text-[#10b981] font-black uppercase tracking-widest text-xs mb-4">Credentials Generated</h4>
-             <div className="grid grid-cols-2 gap-4">
-                <div>
-                   <p className="text-slate-500 text-[10px] uppercase">ID Vector</p>
-                   <p className="text-white font-mono text-xl">{newDr.dr_id}</p>
-                </div>
-                <div>
-                   <p className="text-slate-500 text-[10px] uppercase">Pass Key</p>
-                   <p className="text-white font-mono text-xl">{newDr.tempPassword}</p>
-                </div>
-             </div>
-          </div>
-        )}
-      </Card>
-    </div>
-  );
-};
-
-// 5. RECEPTION DASHBOARD
-const ReceptionDash = () => {
-  const [stats, setStats] = useState({ arrival_rate: 0, emergency_patients: 0, normal_patients: 0 });
-  const [sim, setSim] = useState(null);
-  const hId = localStorage.getItem('hospital_id');
-
-  const fetchData = async () => {
-    const res = await api.get(`/queue/simulate/${hId}`);
-    setSim(res.data);
-    setStats(prev => ({ ...prev, arrival_rate: res.data.arrival_rate || 0 }));
-  };
-
-  useEffect(() => { fetchData(); }, [hId]);
-
-  const handleSync = async () => {
-     await api.patch('/hospital/update-stats', { hospital_id: hId, ...stats });
-     fetchData();
-  };
-
-  return (
-    <div className="p-6 md:p-10">
-      <div className="max-w-7xl mx-auto grid lg:grid-cols-12 gap-8">
-        
-        {/* LEFT: Live Analytics */}
-        <div className="lg:col-span-8 space-y-8">
-          <header>
-            <h2 className="text-4xl font-black text-white tracking-tight">Live <span className="text-[#10b981]">Dynamics</span></h2>
-            <p className="text-slate-400">Real-time patient flow calculation.</p>
-          </header>
-
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-             <MetricDisplay label="Wait Time" value={`${sim?.normalWaitingTimeMin || 0}m`} sub="Estimated" />
-             <MetricDisplay label="Utilization" value={`${sim?.doctorUtilizationPct || 0}%`} sub="Staff Load" />
-             <MetricDisplay label="Bed Count" value={sim?.availableBeds || 0} sub="Available" />
-          </div>
-
-          <div className="bg-[#1e293b] border border-[#334155] p-8 rounded-[40px] relative overflow-hidden">
-             <div className="relative z-10 flex flex-col md:flex-row justify-between md:items-end gap-6">
-                <div>
-                   <p className="text-[#10b981] font-black text-xs uppercase tracking-[0.3em] mb-4">Congestion Vector</p>
-                   <h3 className="text-6xl md:text-8xl font-black italic tracking-tighter uppercase leading-none text-white">{sim?.congestionLevel || 'N/A'}</h3>
-                </div>
-                <div className="md:text-right">
-                   <p className="text-slate-500 text-xs font-bold uppercase">Queue Population</p>
-                   <p className="text-4xl font-black text-white">{sim?.totalQueueLength || 0}</p>
-                </div>
-             </div>
-             {/* Glow Effect */}
-             <div className={`absolute -right-20 -bottom-20 w-80 h-80 rounded-full blur-[100px] opacity-20 ${sim?.congestionLevel === 'High' ? 'bg-red-500' : 'bg-[#10b981]'}`} />
-          </div>
-        </div>
-
-        {/* RIGHT: Control Panel */}
-        <Card className="lg:col-span-4 self-start sticky top-28">
-          <h3 className="text-xl font-bold text-white mb-6 uppercase tracking-widest">Input Stream</h3>
-          <div className="space-y-6">
-            {['arrival_rate', 'emergency_patients', 'normal_patients'].map(key => (
-              <InputField 
-                key={key}
-                label={key.replace('_', ' ')}
-                type="number"
-                value={stats[key]}
-                onChange={e => setStats({...stats, [key]: Number(e.target.value)})}
-              />
-            ))}
-            <ActionButton onClick={handleSync}>Sync To Core</ActionButton>
-          </div>
-        </Card>
-      </div>
-    </div>
-  );
-};
-
-const MetricDisplay = ({ label, value, sub }) => (
-  <div className="bg-[#1e293b] border border-[#334155] p-6 rounded-3xl">
-    <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1">{label}</p>
-    <p className="text-3xl font-black text-white">{value}</p>
-    <p className="text-[10px] text-[#10b981] font-bold mt-2 uppercase">{sub}</p>
-  </div>
-);
-
-// 6. DOCTOR DASHBOARD
-const DoctorDash = () => {
-  const [clockedIn, setClockedIn] = useState(false);
-  const drUuid = localStorage.getItem('doctor_uuid');
-
-  const toggleClock = async () => {
-    // In production, sync with DB. Mocking for UI state here.
+  const handleCreateDoctor = async (e) => {
+    e.preventDefault();
     try {
-        await api.post('/doctor/toggle-clock', { doctor_id: drUuid, is_clocking_in: !clockedIn });
-    } catch(e) { console.error("API error, toggling UI only"); }
-    setClockedIn(!clockedIn);
+      const config = { headers: { Authorization: `Bearer ${token}` } };
+      await axios.post(`${API_BASE}/management/add-doctor`, docForm, config);
+      alert(`Doctor ${docForm.drId} created successfully!`);
+      setDocForm({ drId: '', password: '', serviceTime: 15 });
+    } catch (err) {
+      alert("Failed to create doctor.");
+    }
   };
 
-  return (
-    <div className="h-[calc(100vh-80px)] flex flex-col items-center justify-center p-6 space-y-12">
-      <div className="relative">
-         <div className={`w-64 h-64 rounded-full border border-[#334155] bg-[#1e293b] flex items-center justify-center transition-all duration-700 ${clockedIn ? 'shadow-[0_0_100px_rgba(16,185,129,0.2)]' : ''}`}>
-             <div className={`w-56 h-56 rounded-full flex flex-col items-center justify-center transition-all duration-500 ${clockedIn ? 'bg-[#10b981] scale-100' : 'bg-[#0f172a] scale-90 border border-[#334155]'}`}>
-                 <span className="text-6xl mb-2">{clockedIn ? '🟢' : '⚪'}</span>
-                 <span className={`text-xs font-black uppercase tracking-widest ${clockedIn ? 'text-[#0f172a]' : 'text-slate-500'}`}>
-                    {clockedIn ? 'System Active' : 'Offline'}
-                 </span>
-             </div>
-         </div>
-      </div>
-      
-      <div className="text-center space-y-6">
-        <div>
-           <h2 className="text-3xl font-black text-white">{clockedIn ? 'Shift In Progress' : 'Standby Mode'}</h2>
-           <p className="text-slate-400 text-sm">Status affects algorithmic patient distribution.</p>
+  const handleLogout = () => {
+    setToken(null);
+    setRole(null);
+    localStorage.removeItem('token');
+    localStorage.removeItem('role');
+  };
+
+  const updateStats = async (endpoint, data) => {
+    try {
+      const config = { headers: { Authorization: `Bearer ${token}` } };
+      await axios.patch(`${API_BASE}${endpoint}`, data, config);
+      setTimeout(fetchData, 500);
+      alert("System Updated");
+    } catch (err) {
+      alert("Update failed");
+    }
+  };
+
+  // --- Auth View (Login / Register) ---
+  if (!token) {
+    return (
+      <div className="min-h-screen bg-slate-950 flex items-center justify-center p-6 text-white font-sans">
+        <div className="bg-slate-900 p-8 rounded-3xl shadow-2xl w-full max-w-md border border-slate-800">
+          <div className="text-center mb-8">
+            <div className="bg-blue-600/20 w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-4 border border-blue-500/30">
+              <Stethoscope className="text-blue-400" size={32} />
+            </div>
+            <h1 className="text-3xl font-black tracking-tight">{isRegistering ? 'Register Hospital' : 'Welcome Back'}</h1>
+            <p className="text-slate-500 text-sm mt-2">HospitalSync</p>
+          </div>
+
+          {isRegistering ? (
+            /* REGISTRATION FORM */
+            <form onSubmit={handleRegister} className="space-y-4">
+              <InputDark label="Hospital Name" placeholder="City General" required
+                onChange={(e) => setRegisterForm({...registerForm, name: e.target.value})} />
+              <InputDark label="Management Password" type="password" placeholder="••••••••" required
+                onChange={(e) => setRegisterForm({...registerForm, managementPassword: e.target.value})} />
+              <InputDark label="Reception Password" type="password" placeholder="••••••••" required
+                onChange={(e) => setRegisterForm({...registerForm, receptionPassword: e.target.value})} />
+              <button className="w-full bg-blue-600 hover:bg-blue-500 py-4 rounded-xl font-bold transition-all flex items-center justify-center gap-2" disabled={loading}>
+                <UserPlus size={20}/> Create Hospital Account
+              </button>
+            </form>
+          ) : (
+            /* LOGIN FORM */
+            <form onSubmit={handleLogin} className="space-y-4">
+              <div className="bg-slate-800 p-1 rounded-xl flex mb-4">
+                {['management', 'reception', 'doctor'].map((r) => (
+                  <button key={r} type="button" 
+                    onClick={() => setLoginForm({...loginForm, role: r})}
+                    className={`flex-1 py-2 text-xs font-bold rounded-lg capitalize transition-all ${loginForm.role === r ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-400'}`}>
+                    {r}
+                  </button>
+                ))}
+              </div>
+              {loginForm.role === 'doctor' ? (
+                <InputDark label="Doctor ID" placeholder="DR_SMITH_01" required
+                  onChange={(e) => setLoginForm({...loginForm, drId: e.target.value})} />
+              ) : (
+                <InputDark label="Hospital Name" placeholder="General Hospital" required
+                  onChange={(e) => setLoginForm({...loginForm, name: e.target.value})} />
+              )}
+              <InputDark label="Password" type="password" placeholder="••••••••" required
+                onChange={(e) => setLoginForm({...loginForm, password: e.target.value})} />
+              <button className="w-full bg-indigo-600 hover:bg-indigo-500 py-4 rounded-xl font-bold transition-all flex items-center justify-center gap-2">
+                <ShieldCheck size={20}/> Secure Access
+              </button>
+            </form>
+          )}
+
+          <div className="mt-8 pt-6 border-t border-slate-800 text-center">
+            <button 
+              onClick={() => setIsRegistering(!isRegistering)}
+              className="text-blue-400 text-sm font-semibold hover:text-blue-300 transition-colors">
+              {isRegistering ? "Already have a hospital? Log In" : "Need to register a new hospital?"}
+            </button>
+          </div>
         </div>
-        <button 
-           onClick={toggleClock} 
-           className={`px-12 py-4 rounded-xl font-black uppercase tracking-[0.2em] transition-all hover:scale-105 ${clockedIn ? 'bg-red-500/10 text-red-500 border border-red-500/50 hover:bg-red-500 hover:text-white' : 'bg-[#10b981] text-[#0f172a] shadow-lg shadow-[#10b981]/20'}`}>
-           {clockedIn ? 'Terminate Shift' : 'Initiate Shift'}
-        </button>
       </div>
+    );
+  }
+
+  // --- Main Dashboard View ---
+  return (
+    <div className="min-h-screen bg-slate-50 flex">
+      {/* Sidebar */}
+      <aside className="w-64 bg-slate-900 text-white p-6 flex flex-col fixed h-full">
+        <h2 className="text-xl font-bold mb-10 flex items-center gap-2 text-blue-400"><Stethoscope size={24}/> HospitalSync</h2>
+        <nav className="flex-1 space-y-2">
+          <div className="w-full flex items-center gap-3 p-3 bg-blue-600 text-white rounded-lg font-bold shadow-lg shadow-blue-900/40"><LayoutDashboard size={20}/> Dashboard</div>
+        </nav>
+        <button onClick={handleLogout} className="flex items-center gap-3 p-3 text-red-400 hover:bg-slate-800 rounded-lg mt-auto transition-colors font-medium"><LogOut size={20}/> Sign Out</button>
+      </aside>
+
+      <main className="flex-1 ml-64 p-10">
+        {/* Header */}
+        <header className="flex justify-between items-center mb-10">
+          <div>
+            <h1 className="text-3xl font-extrabold text-slate-800 tracking-tight">Analytics Dashboard</h1>
+            <p className="text-slate-500 mt-1 uppercase text-xs font-black tracking-widest">Active Role: <span className="text-blue-600">{role}</span></p>
+          </div>
+          <button onClick={fetchData} disabled={loading} className="flex items-center gap-2 bg-white border border-slate-200 px-4 py-2 rounded-xl shadow-sm hover:shadow-md transition-all active:scale-95">
+            <RefreshCw size={18} className={loading ? "animate-spin" : ""} /> {loading ? "Syncing..." : "Refresh"}
+          </button>
+        </header>
+
+        {/* Stats Grid */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-10">
+          <StatCard label="Doc Utilization" value={`${simResults?.doctorUtilizationPct || 0}%`} icon={<UserCog className="text-purple-500"/>} />
+          <StatCard label="Queue Total" value={simResults?.totalQueueLength || 0} icon={<ClipboardList className="text-blue-500"/>} />
+          <StatCard label="Free Beds" value={simResults?.availableBeds || 0} icon={<div className={`w-3 h-3 rounded-full ${simResults?.availableBeds > 0 ? 'bg-green-500' : 'bg-red-500'}`}/>} />
+          <StatCard label="Congestion" value={simResults?.congestionLevel || "..."} color={simResults?.congestionLevel === 'High' ? 'text-red-600' : 'text-green-600'} icon={<AlertTriangle className={simResults?.congestionLevel === 'High' ? 'text-red-500' : 'text-green-500'}/>} />
+        </div>
+
+        {/* Main Content Grid */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-10">
+          {/* Prediction Times Panel */}
+          <div className="bg-white p-8 rounded-2xl shadow-sm border border-slate-100 h-fit">
+            <h3 className="text-lg font-bold mb-6 text-slate-700 flex items-center gap-2"><Clock className="text-slate-400" size={20}/> Prediction Times</h3>
+            <div className="space-y-6">
+              <TimeBar label="Emergency Patient" time={simResults?.emergencyWaitingTimeMin || 0} max={30} color="bg-red-500" />
+              <TimeBar label="Normal Patient" time={simResults?.normalWaitingTimeMin || 0} max={60} color="bg-blue-500" />
+              <div className="mt-6 p-4 bg-orange-50 border border-orange-100 rounded-xl text-sm text-orange-800 font-semibold flex items-center gap-2">
+                <AlertTriangle size={16}/> Admission Delay: {simResults?.admissionDelayMin || 0} mins
+              </div>
+            </div>
+          </div>
+
+          {/* Control Panel */}
+          <div className="bg-white p-8 rounded-2xl shadow-sm border border-slate-100">
+            <div className="flex justify-between items-center mb-6">
+              <h3 className="text-lg font-bold text-slate-700">Control Panel</h3>
+              {role === 'management' && (
+                <div className="flex bg-slate-100 p-1 rounded-lg">
+                  <button onClick={() => setMgmtTab('stats')} className={`px-3 py-1 text-xs font-bold rounded-md ${mgmtTab === 'stats' ? 'bg-white shadow-sm' : 'text-slate-500'}`}>System</button>
+                  <button onClick={() => setMgmtTab('doctors')} className={`px-3 py-1 text-xs font-bold rounded-md ${mgmtTab === 'doctors' ? 'bg-white shadow-sm' : 'text-slate-500'}`}>Doctors</button>
+                </div>
+              )}
+            </div>
+            
+            {/* Management - System Stats Tab */}
+            {role === 'management' && mgmtTab === 'stats' && (
+              <div className="space-y-5">
+                <div className="grid grid-cols-2 gap-4">
+                  <Input label="Beds" type="number" onChange={(e) => setMgmtForm({...mgmtForm, totalBeds: e.target.value})} />
+                  <Input label="Doc Limit" type="number" onChange={(e) => setMgmtForm({...mgmtForm, doctorCount: e.target.value})} />
+                </div>
+                <Input label="Service Time (Mins)" type="number" onChange={(e) => setMgmtForm({...mgmtForm, globalServiceTime: e.target.value})} />
+                <button onClick={() => updateStats('/management/update-hospital', mgmtForm)} className="w-full bg-slate-900 text-white py-3 rounded-xl font-bold mt-2">Update Infrastructure</button>
+              </div>
+            )}
+
+            {/* Management - Doctor Creation Tab */}
+            {role === 'management' && mgmtTab === 'doctors' && (
+              <form onSubmit={handleCreateDoctor} className="space-y-4">
+                <Input label="Doctor ID" placeholder="DR_NAME" value={docForm.drId} onChange={(e) => setDocForm({...docForm, drId: e.target.value})} />
+                <Input label="Doctor Password" type="password" value={docForm.password} onChange={(e) => setDocForm({...docForm, password: e.target.value})} />
+                <Input label="Specific Service Time" type="number" value={docForm.serviceTime} onChange={(e) => setDocForm({...docForm, serviceTime: e.target.value})} />
+                <button className="w-full bg-indigo-600 text-white py-3 rounded-xl font-bold flex items-center justify-center gap-2"><UserRoundPlus size={18}/> Create Doctor</button>
+              </form>
+            )}
+
+            {/* Reception */}
+            {role === 'reception' && (
+              <div className="space-y-5">
+                <Input label="Arrival Rate (p/hr)" type="number" onChange={(e) => setRcptForm({...rcptForm, arrivalRate: e.target.value})} />
+                <div className="grid grid-cols-2 gap-4">
+                  <Input label="Emergency" type="number" onChange={(e) => setRcptForm({...rcptForm, emergencyPatients: e.target.value})} />
+                  <Input label="Normal" type="number" onChange={(e) => setRcptForm({...rcptForm, normalPatients: e.target.value})} />
+                </div>
+                <button onClick={() => updateStats('/reception/update-stats', rcptForm)} className="w-full bg-blue-600 text-white py-3 rounded-xl font-bold mt-2">Sync Flow</button>
+              </div>
+            )}
+
+            {/* Doctor */}
+            {role === 'doctor' && (
+              <div className="text-center py-10">
+                <div className="w-20 h-20 bg-blue-50 rounded-full flex items-center justify-center mx-auto mb-6"><Clock size={32} className="text-blue-600"/></div>
+                <button onClick={() => updateStats('/doctor/clock', {})} className="px-10 py-4 bg-blue-600 text-white rounded-full font-bold shadow-xl shadow-blue-100 hover:scale-105 transition-all">Clock In / Out</button>
+              </div>
+            )}
+          </div>
+        </div>
+      </main>
     </div>
   );
-};
+}
 
-// --- MAIN APP COMPONENT ---
-export default function App() {
+// --- Helper Components ---
+
+function StatCard({ label, value, icon, color = "text-slate-800" }) {
   return (
-    <Router>
-      <div className="min-h-screen bg-[#0f172a] font-sans text-slate-200 selection:bg-[#10b981] selection:text-[#0f172a]">
-        <Navbar />
-        <Routes>
-          <Route path="/" element={<Landing />} />
-          <Route path="/register" element={<Register />} />
-          <Route path="/login/:role" element={<Login />} />
-          <Route path="/management-dash" element={<ManagementDash />} />
-          <Route path="/reception-dash" element={<ReceptionDash />} />
-          <Route path="/doctor-dash" element={<DoctorDash />} />
-          <Route path="*" element={<Navigate to="/" />} />
-        </Routes>
-      </div>
-    </Router>
+    <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 transition-all hover:border-blue-200">
+      <div className="flex justify-between items-start mb-4"><span className="text-slate-400 text-[10px] font-black uppercase tracking-widest">{label}</span> {icon}</div>
+      <span className={`text-3xl font-black tracking-tight ${color}`}>{value}</span>
+    </div>
   );
+}
+
+function TimeBar({ label, time, max, color }) {
+  const percentage = Math.min((time / max) * 100, 100);
+  return (
+    <div>
+      <div className="flex justify-between text-xs font-bold mb-2"><span>{label}</span><span className="text-slate-400">{time}m</span></div>
+      <div className="w-full bg-slate-100 h-3 rounded-full overflow-hidden border border-slate-50"><div className={`${color} h-full transition-all duration-700`} style={{ width: `${percentage}%` }} /></div>
+    </div>
+  );
+}
+
+function Input({ label, isDark = false, ...props }) {
+  return (
+    <div className="w-full text-left">
+      <label className={`block text-[10px] font-black mb-1 uppercase tracking-tighter ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>{label}</label>
+      <input className={`w-full border rounded-xl p-3 focus:ring-2 focus:ring-blue-500/20 outline-none transition-all font-medium ${isDark ? 'bg-slate-700 border-slate-600 text-white' : 'bg-white border-slate-200 text-slate-700'}`} {...props} />
+    </div>
+  );
+}
+
+function InputDark({ label, ...props }) {
+  return (
+    <div className="w-full">
+      <label className="block text-[10px] font-bold text-slate-500 mb-1 uppercase tracking-widest ml-1">{label}</label>
+      <input className="w-full bg-slate-800 border border-slate-700 rounded-xl p-4 focus:ring-2 focus:ring-blue-500/50 outline-none transition-all text-white placeholder-slate-600" {...props} />
+    </div>
+  )
 }
