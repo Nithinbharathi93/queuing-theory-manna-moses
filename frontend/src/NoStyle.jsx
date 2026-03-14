@@ -278,75 +278,201 @@ function ManagementDashboard({ user }) {
 
 // --- 3. RECEPTION DASHBOARD ---
 function ReceptionDashboard({ user }) {
-  const [data, setData] = useState({ patients: [], beds: [], depts: [] });
+  const [data, setData] = useState({ patients: [], beds: [], depts: [], doctors: [] });
+  const [congestionData, setCongestionData] = useState({});
+  const [floorCongestion, setFloorCongestion] = useState({});
+  
 
-  useEffect(() => { loadData(); }, []);
+  useEffect(() => {
+    loadData();
+    
+    // Optional: Real-time listener to refresh data when admissions change
+    const channel = supabase
+      .channel('schema-db-changes')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'admissions' }, () => loadData())
+      .subscribe();
+
+    return () => supabase.removeChannel(channel);
+  }, []);
 
   const loadData = async () => {
-    const { data: d } = await supabase.from('departments').select('*');
-    const { data: f } = await supabase.from('floors').select('*, admissions(*)');
-    const { data: p } = await supabase.from('patients').select('*, admissions(*)').neq('status', 'discharged');
-    setData({ depts: d || [], beds: f || [], patients: p || [] });
+    // 1. Fetch data with relational joins for the Table display
+    const [d, f, p, dr] = await Promise.all([
+      supabase.from('departments').select('*'),
+      supabase.from('floors').select('*, admissions(*)').filter('admissions.discharge_time', 'is', null),
+      // Join floors through admissions to show Floor No. in the patient table
+      supabase.from('patients').select(`
+        *, 
+        admissions(bed_number, floors(floor_number))
+      `).neq('status', 'discharged'),
+      supabase.from('doctors').select('*, departments(name)').eq('is_clocked_in', true)
+    ]);
+
+    const depts = d.data || [];
+    setData({
+      depts,
+      beds: f.data || [],
+      patients: p.data || [],
+      doctors: dr.data || []
+    });
+
+    // 1. Refresh Dept Congestion
+    depts.forEach(dept => refreshCongestion(dept.id, null, 'dept'));
+
+    // 2. NEW: Refresh Floor Congestion
+    f.data.forEach(floor => refreshCongestion(null, floor.id, 'floor'));
+  };
+
+  const refreshCongestion = async (deptId, floorId, type) => {
+    try {
+      const { data: result } = await supabase.functions.invoke('calculate-congestion', {
+        body: { dept_id: deptId, floor_id: floorId }
+      });
+      if (result) {
+        if (type === 'dept') setCongestionData(prev => ({ ...prev, [deptId]: result }));
+        else setFloorCongestion(prev => ({ ...prev, [floorId]: result }));
+      }
+    } catch (err) {
+      console.error("Congestion check failed:", err);
+    }
   };
 
   const admit = async (e) => {
     e.preventDefault();
     const { name, dept_id, floor_id, is_emergency } = e.target.elements;
     
+    // Find the correct hospital_id for the staff member
+    const { data: staffInfo } = await supabase.from('staff').select('hospital_id').eq('id', user.id).single();
+
     const { data: patient } = await supabase.from('patients').insert([{ 
-      hospital_id: data.beds[0]?.hospital_id, name: name.value, dept_id: dept_id.value, is_emergency: is_emergency.checked, status: 'admitted' 
+      hospital_id: staffInfo.hospital_id, 
+      name: name.value, 
+      dept_id: dept_id.value, 
+      is_emergency: is_emergency.checked, 
+      status: 'admitted' 
     }]).select().single();
 
     await supabase.from('admissions').insert([{ 
-      patient_id: patient.id, floor_id: floor_id.value, bed_number: Math.floor(Math.random() * 500) 
+      patient_id: patient.id, 
+      floor_id: floor_id.value, 
+      bed_number: Math.floor(Math.random() * 500) 
     }]);
+
     loadData();
   };
 
   const discharge = async (pid) => {
+    // Feature 6: Auto-update bed to free
     await supabase.from('admissions').update({ discharge_time: new Date() }).eq('patient_id', pid);
     await supabase.from('patients').update({ status: 'discharged' }).eq('id', pid);
     loadData();
   };
 
   return (
-    <div>
-      <h2>Reception: Patient flow</h2>
-      <section>
-        <h3>Admit Patient</h3>
-        <form onSubmit={admit}>
-          <input name="name" placeholder="Patient Name" required />
-          <select name="dept_id">{data.depts.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}</select>
-          <select name="floor_id">
-            {data.beds.map(f => {
-              const free = f.total_beds - f.admissions.filter(a => !a.discharge_time).length;
-              return <option key={f.id} value={f.id}>Floor {f.floor_number} ({free} free)</option>
+    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.8fr', gap: '25px', padding: '20px' }}>
+      {/* LEFT: ADMISSION & DOCTORS */}
+      <div>
+        <section style={{ border: '2px solid #007bff', padding: '15px', borderRadius: '8px', marginBottom: '20px' }}>
+          <h3 style={{ marginTop: 0 }}>Admit Patient</h3>
+          <form onSubmit={admit}>
+            <input name="name" placeholder="Patient Name" required style={{ width: '100%', padding: '8px', marginBottom: '10px' }} />
+            <label>Department:</label>
+            <select name="dept_id" style={{ width: '100%', padding: '8px', marginBottom: '10px' }}>
+              {data.depts.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
+            </select>
+            <label>Assign Floor:</label>
+            <select name="floor_id" style={{ width: '100%', padding: '8px', marginBottom: '10px' }}>
+              {data.beds.map(f => {
+                const free = f.total_beds - f.admissions.length;
+                return <option key={f.id} value={f.id}>Floor {f.floor_number} ({free} free)</option>
+              })}
+            </select>
+            <label style={{ display: 'block', marginBottom: '15px' }}>
+              <input type="checkbox" name="is_emergency" /> 🚨 Emergency Patient
+            </label>
+            <button type="submit" style={{ width: '100%', padding: '12px', background: '#007bff', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer' }}>
+              Admit & Assign Bed
+            </button>
+          </form>
+        </section>
+
+        <section style={{ border: '1px solid #ccc', padding: '15px', borderRadius: '8px' }}>
+          <h3>Doctors Available Now ({data.doctors.length})</h3>
+          <div style={{ maxHeight: '200px', overflowY: 'auto' }}>
+            {data.doctors.length > 0 ? data.doctors.map(dr => (
+              <div key={dr.id} style={{ padding: '8px', borderBottom: '1px solid #eee' }}>
+                <span style={{ color: 'green' }}>●</span> <b>{dr.dr_id}</b> <br/>
+                <small style={{ color: '#666' }}>{dr.departments?.name}</small>
+              </div>
+            )) : <p>No doctors currently clocked in.</p>}
+          </div>
+        </section>
+      </div>
+
+      {/* RIGHT: LIVE STATS & PATIENT TABLE */}
+      <div>
+        <section style={{ border: '1px solid #ccc', padding: '15px', borderRadius: '8px', marginBottom: '20px' }}>
+          <h3>Live Department Wait Times</h3>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: '10px' }}>
+            {data.depts.map(dept => {
+              const stat = congestionData[dept.id];
+              const isHigh = stat?.congestionLevel === 'High';
+              return (
+                <div key={dept.id} style={{ border: '1px solid #ddd', padding: '10px', borderRadius: '5px', background: isHigh ? '#fff0f0' : '#f0fff0' }}>
+                  <strong>{dept.name}</strong>
+                  <div style={{ color: isHigh ? 'red' : 'green', fontWeight: 'bold' }}>{stat?.congestionLevel || '...'}</div>
+                  <small>Est. Wait: {stat?.normalWait?.toFixed(0)} min</small>
+                </div>
+              );
             })}
-          </select>
-          <label><input type="checkbox" name="is_emergency" /> Emergency</label>
-          <button>Admit</button>
-        </form>
-      </section>
+          </div>
+        </section>
 
-      <section>
-        <h3>Bed Management & Suggestions</h3>
-        <div style={{ background: '#f9f9f9', padding: '10px' }}>
-          {data.beds.map(f => {
-            const free = f.total_beds - f.admissions.filter(a => !a.discharge_time).length;
-            const isBest = free > 0 && free === Math.max(...data.beds.map(fl => fl.total_beds - fl.admissions.filter(a => !a.discharge_time).length));
-            return (
-              <p key={f.id} style={{ color: free > 0 ? 'green' : 'red' }}>
-                Floor {f.floor_number}: {free} / {f.total_beds} beds available {isBest && '⭐ (Best Option)'}
-              </p>
-            )
-          })}
-        </div>
-      </section>
+        <section style={{ border: '1px solid #ccc', padding: '15px', borderRadius: '8px', marginBottom: '20px' }}>
+          <h3>Floor Occupancy & Congestion</h3>
+          <div style={{ display: 'flex', gap: '10px', overflowX: 'auto' }}>
+            {data.beds.map(f => {
+              const stat = floorCongestion[f.id];
+              const color = stat?.congestionLevel === 'High' ? 'red' : 'inherit';
+              return (
+                <div key={f.id} style={{ minWidth: '150px', padding: '10px', border: `2px solid ${color}`, textAlign: 'center' }}>
+                  <b>Floor {f.floor_number}</b><br/>
+                  <span style={{color: color}}>{stat?.congestionLevel || '...'}</span><br/>
+                  {f.admissions.length} / {f.total_beds}
+                </div>
+              );
+            })}
+          </div>
+        </section>
 
-      <section>
-        <h3>Current Patients</h3>
-        <ul>{data.patients.map(p => <li key={p.id}>{p.name} - <button onClick={() => discharge(p.id)}>Discharge</button></li>)}</ul>
-      </section>
+        <section style={{ border: '1px solid #ccc', padding: '15px', borderRadius: '8px' }}>
+          <h3>Admitted Patients</h3>
+          <table border="1" cellPadding="10" style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
+            <thead style={{ background: '#f4f4f4' }}>
+              <tr>
+                <th>Patient Name</th>
+                <th>Status</th>
+                <th>Floor</th>
+                <th>Action</th>
+              </tr>
+            </thead>
+            <tbody>
+              {data.patients.map(p => {
+                // Feature 4: Map patient to their floor
+                const floorNum = p.admissions?.[0]?.floors?.floor_number || 'N/A';
+                return (
+                  <tr key={p.id}>
+                    <td><b>{p.name}</b></td>
+                    <td>{p.is_emergency ? <span style={{ color: 'red' }}>🚨 Emergency</span> : 'Normal'}</td>
+                    <td>Floor {floorNum}</td>
+                    <td><button onClick={() => discharge(p.id)} style={{ color: 'red', cursor: 'pointer' }}>Discharge</button></td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </section>
+      </div>
     </div>
   );
 }
