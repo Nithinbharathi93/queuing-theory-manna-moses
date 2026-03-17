@@ -375,6 +375,7 @@ function ReceptionDashboard({ user }) {
   const [data, setData] = useState({ patients: [], beds: [], depts: [], doctors: [] });
   const [congestionData, setCongestionData] = useState({});
   const [floorCongestion, setFloorCongestion] = useState({});
+  const [patientType, setPatientType] = useState('IP');
   
 
   useEffect(() => {
@@ -433,24 +434,33 @@ function ReceptionDashboard({ user }) {
 
   const admit = async (e) => {
     e.preventDefault();
-    const { name, dept_id, floor_id, is_emergency } = e.target.elements;
-    
+    const { name, dept_id, floor_id, is_emergency, patient_type } = e.target.elements;
+    const isOP = patient_type.value === 'OP';
+
     // Find the correct hospital_id for the staff member
     const { data: staffInfo } = await supabase.from('staff').select('hospital_id').eq('id', user.id).single();
 
-    const { data: patient } = await supabase.from('patients').insert([{ 
+    // 1. Create Patient
+    const { data: patient, error: pErr } = await supabase.from('patients').insert([{ 
       hospital_id: staffInfo.hospital_id, 
       name: name.value, 
-      dept_id: dept_id.value, 
-      is_emergency: is_emergency.checked, 
-      status: 'admitted' 
+      dept_id: dept_id.value,
+      patient_type: patient_type.value,
+      current_floor_id: isOP ? null : floor_id.value,
+      is_emergency: isOP ? false : is_emergency.checked,
+      status: isOP ? 'waiting' : 'admitted'
     }]).select().single();
 
-    await supabase.from('admissions').insert([{ 
-      patient_id: patient.id, 
-      floor_id: floor_id.value, 
-      bed_number: Math.floor(Math.random() * 500) 
-    }]);
+    if (pErr) return alert(pErr.message);
+
+    // 2. Only create admission record if Inpatient (IP)
+    if (!isOP) {
+      await supabase.from('admissions').insert([{ 
+        patient_id: patient.id, 
+        floor_id: floor_id.value, 
+        bed_number: Math.floor(Math.random() * 500) 
+      }]);
+    }
 
     loadData();
   };
@@ -475,26 +485,67 @@ function ReceptionDashboard({ user }) {
               <input name="name" placeholder="Patient Full Name" required className="w-full px-4 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-slate-50 transition-colors" />
             </div>
             <div>
+              <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">Patient Type</label>
+              <div className="flex rounded-lg overflow-hidden border border-slate-200">
+                <button
+                  type="button"
+                  onClick={() => setPatientType('IP')}
+                  className={`flex-1 py-2 text-sm font-semibold transition-colors ${
+                    patientType === 'IP'
+                      ? 'bg-blue-600 text-white'
+                      : 'bg-slate-50 text-slate-600 hover:bg-slate-100'
+                  }`}
+                >
+                  🏥 Inpatient (IP)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPatientType('OP')}
+                  className={`flex-1 py-2 text-sm font-semibold transition-colors ${
+                    patientType === 'OP'
+                      ? 'bg-violet-600 text-white'
+                      : 'bg-slate-50 text-slate-600 hover:bg-slate-100'
+                  }`}
+                >
+                  🚶 Outpatient (OP)
+                </button>
+              </div>
+              <input type="hidden" name="patient_type" value={patientType} />
+            </div>
+            <div>
               <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">Department</label>
               <select name="dept_id" className="w-full px-4 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-slate-50 text-slate-700">
                 {data.depts.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
               </select>
             </div>
-            <div>
-              <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">Assign Floor</label>
-              <select name="floor_id" className="w-full px-4 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-slate-50 text-slate-700">
-                {data.beds.map(f => {
-                  const free = f.total_beds - f.admissions.length;
-                  return <option key={f.id} value={f.id}>Floor {f.floor_number} ({free} free beds)</option>
-                })}
-              </select>
-            </div>
-            <label className="flex items-center gap-2 p-3 bg-red-50 border border-red-100 rounded-lg cursor-pointer hover:bg-red-100 transition-colors">
-              <input type="checkbox" name="is_emergency" className="w-4 h-4 text-red-600 rounded focus:ring-red-500 border-red-300" />
-              <span className="text-sm font-semibold text-red-700 flex items-center gap-1">🚨 Mark as Emergency</span>
-            </label>
-            <button type="submit" className="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg shadow-md hover:shadow-lg transition-all focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2">
-              Admit & Assign Bed
+            {patientType === 'IP' && (
+              <>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">Assign Floor</label>
+                  <select name="floor_id" className="w-full px-4 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-slate-50 text-slate-700">
+                    {data.beds.map(f => {
+                      const free = f.total_beds - f.admissions.length;
+                      return <option key={f.id} value={f.id}>Floor {f.floor_number} ({free} free beds)</option>
+                    })}
+                  </select>
+                </div>
+                <label className="flex items-center gap-2 p-3 bg-red-50 border border-red-100 rounded-lg cursor-pointer hover:bg-red-100 transition-colors">
+                  <input type="checkbox" name="is_emergency" className="w-4 h-4 text-red-600 rounded focus:ring-red-500 border-red-300" />
+                  <span className="text-sm font-semibold text-red-700 flex items-center gap-1">🚨 Mark as Emergency</span>
+                </label>
+              </>
+            )}
+            {patientType === 'OP' && (
+              <p className="text-xs text-violet-600 bg-violet-50 border border-violet-100 rounded-lg px-3 py-2">
+                ℹ️ OP patients are added to the department queue — no bed or emergency flag needed.
+              </p>
+            )}
+            <button type="submit" className={`w-full py-3 text-white font-bold rounded-lg shadow-md hover:shadow-lg transition-all focus:outline-none focus:ring-2 focus:ring-offset-2 ${
+              patientType === 'OP'
+                ? 'bg-violet-600 hover:bg-violet-700 focus:ring-violet-500'
+                : 'bg-blue-600 hover:bg-blue-700 focus:ring-blue-500'
+            }`}>
+              {patientType === 'OP' ? 'Add to Queue' : 'Admit & Assign Bed'}
             </button>
           </form>
         </section>
@@ -579,6 +630,7 @@ function ReceptionDashboard({ user }) {
               <thead className="bg-slate-50">
                 <tr>
                   <th className="px-6 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">Patient Name</th>
+                  <th className="px-6 py-3 text-center text-xs font-semibold text-slate-500 uppercase tracking-wider">Type</th>
                   <th className="px-6 py-3 text-center text-xs font-semibold text-slate-500 uppercase tracking-wider">Status</th>
                   <th className="px-6 py-3 text-center text-xs font-semibold text-slate-500 uppercase tracking-wider">Floor</th>
                   <th className="px-6 py-3 text-right text-xs font-semibold text-slate-500 uppercase tracking-wider">Action</th>
@@ -586,12 +638,15 @@ function ReceptionDashboard({ user }) {
               </thead>
               <tbody className="bg-white divide-y divide-slate-200">
                 {data.patients.length > 0 ? data.patients.map(p => {
-                  const floorNum = p.admissions?.[0]?.floors?.floor_number || 'N/A';
+                  const isOP = p.patient_type === 'OP';
+                  const floorNum = p.admissions?.[0]?.floors?.floor_number;
                   return (
                     <tr key={p.id} className="hover:bg-slate-50 transition-colors">
                       <td className="px-6 py-4 whitespace-nowrap">
                         <div className="flex items-center">
-                          <div className="flex-shrink-0 h-8 w-8 rounded-full bg-blue-100 flex items-center justify-center text-blue-700 font-bold text-xs uppercase">{p.name.charAt(0)}</div>
+                          <div className={`flex-shrink-0 h-8 w-8 rounded-full flex items-center justify-center font-bold text-xs uppercase ${
+                            isOP ? 'bg-violet-100 text-violet-700' : 'bg-blue-100 text-blue-700'
+                          }`}>{p.name.charAt(0)}</div>
                           <div className="ml-3">
                             <p className="text-sm font-bold text-slate-800">{p.name}</p>
                             <p className="text-xs text-slate-500">ID: {p.id.substring(0,8)}</p>
@@ -599,13 +654,27 @@ function ReceptionDashboard({ user }) {
                         </div>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-center">
-                        {p.is_emergency ? 
-                          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-red-100 text-red-800"><span className="w-2 h-2 bg-red-600 rounded-full animate-pulse"></span>Emergency</span> : 
-                          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-800">Normal</span>
+                        <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold ${
+                          isOP
+                            ? 'bg-violet-100 text-violet-800'
+                            : 'bg-blue-100 text-blue-800'
+                        }`}>
+                          {isOP ? '🚶 OP' : '🏥 IP'}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-center">
+                        {isOP
+                          ? <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-violet-100 text-violet-800">Waiting</span>
+                          : p.is_emergency
+                            ? <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-red-100 text-red-800"><span className="w-2 h-2 bg-red-600 rounded-full animate-pulse"></span>Emergency</span>
+                            : <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-800">Normal</span>
                         }
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-center text-sm font-medium text-slate-600">
-                        <span className="bg-slate-100 border border-slate-200 px-2 py-1 rounded-md">Floor {floorNum}</span>
+                        {isOP
+                          ? <span className="text-slate-400 text-xs italic">—</span>
+                          : <span className="bg-slate-100 border border-slate-200 px-2 py-1 rounded-md">Floor {floorNum ?? 'N/A'}</span>
+                        }
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-right text-sm">
                         <button onClick={() => discharge(p.id)} className="inline-flex items-center gap-1 px-3 py-1.5 border border-red-200 text-red-600 hover:bg-red-50 hover:text-red-700 hover:border-red-300 font-semibold rounded-lg transition-all shadow-sm">
@@ -614,7 +683,7 @@ function ReceptionDashboard({ user }) {
                       </td>
                     </tr>
                   );
-                }) : <tr><td colSpan="4" className="px-6 py-10 text-center text-sm text-slate-500 italic">No patients admitted currently.</td></tr>}
+                }) : <tr><td colSpan="5" className="px-6 py-10 text-center text-sm text-slate-500 italic">No patients admitted currently.</td></tr>}
               </tbody>
             </table>
           </div>
