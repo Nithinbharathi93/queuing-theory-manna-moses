@@ -1,4 +1,4 @@
-# 🏥 HospitalSync — Complete Project Documentation
+# 🏥 Agilizar Portal — Complete Project Documentation
 
 > **A Multi-Tenant Hospital Management & Queue Prediction System**  
 > Built with React 19, Vite 7, Supabase, and Tailwind CSS.
@@ -34,7 +34,7 @@
 
 ## 1. Project Overview
 
-**HospitalSync** is a full-stack, browser-only Hospital ERP (Enterprise Resource Planning) system. It enables hospitals to:
+**Agilizar Portal** is a full-stack, browser-only Hospital ERP (Enterprise Resource Planning) system. It enables hospitals to:
 
 - Register their institution and set up departments and floor infrastructure.
 - Admit inpatients (IP) with bed and floor assignments or outpatients (OP) to a department queue.
@@ -588,7 +588,7 @@ This means doctor clock-in/clock-out events **immediately affect** predicted wai
 
 ## 11. Real-Time Updates
 
-HospitalSync uses **Supabase Realtime** to maintain a live view in the `ReceptionDashboard`:
+Agilizar Portal uses **Supabase Realtime** to maintain a live view in the `ReceptionDashboard`:
 
 ```js
 // Subscribes to any INSERT, UPDATE, or DELETE on the admissions table
@@ -744,4 +744,4 @@ The `patientType` state in `ReceptionDashboard` drives the form UI. A hidden `<i
 
 ---
 
-*Documentation generated: 2026-03-18 | Project: HospitalSync | Repo: queuing-theory-manna-moses*
+*Documentation generated: 2026-03-18 | Project: Agilizar Portal | Repo: queuing-theory-manna-moses*

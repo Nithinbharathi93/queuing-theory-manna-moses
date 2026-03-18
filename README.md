@@ -1,15 +1,15 @@
 
-# 🏥 HospitalSync
+# 🏥 Agilizar Portal
 
 **A Multi-Tenant Hospital Management & Queue Prediction System.**
 
-HospitalSync is a full-featured hospital ERP that runs entirely in the browser, powered by **Supabase** for authentication, a real-time PostgreSQL database, and serverless Edge Functions for live queue analytics. It tracks patient traffic, bed occupancy, and staff availability — with real-time congestion predictions per department and floor.
+Agilizar Portal is a full-featured hospital ERP that runs entirely in the browser, powered by **Supabase** for authentication, a real-time PostgreSQL database, and serverless Edge Functions for live queue analytics. It tracks patient traffic, bed occupancy, and staff availability — with real-time congestion predictions per department and floor.
 
 ---
 
 ## 🚀 System Architecture
 
-HospitalSync uses a **Three-Role Access Model** with zero traditional backend. All business logic runs through Supabase Auth, Supabase Postgres, and Supabase Edge Functions.
+Agilizar Portal uses a **Three-Role Access Model** with zero traditional backend. All business logic runs through Supabase Auth, Supabase Postgres, and Supabase Edge Functions.
 
 | Role | Responsibilities |
 |---|---|
