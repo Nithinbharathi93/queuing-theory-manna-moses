@@ -4,7 +4,7 @@ import Sitemap from 'vite-plugin-sitemap'
 
 // https://vite.dev/config/
 export default defineConfig({
-  plugins: [react()]
+  plugins: [react()],
   base: '/' || VITE_BASE_PATH,
   
 })
